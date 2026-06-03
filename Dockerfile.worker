@@ -1,0 +1,39 @@
+# ── Stage 1: Restore ──────────────────────────────────────────────────────────
+FROM mcr.microsoft.com/dotnet/sdk:9.0 AS restore
+WORKDIR /src
+
+COPY ["src/NexusPM.Domain/NexusPM.Domain.csproj",                "src/NexusPM.Domain/"]
+COPY ["src/NexusPM.Application/NexusPM.Application.csproj",      "src/NexusPM.Application/"]
+COPY ["src/NexusPM.Infrastructure/NexusPM.Infrastructure.csproj","src/NexusPM.Infrastructure/"]
+COPY ["src/NexusPM.Worker/NexusPM.Worker.csproj",                "src/NexusPM.Worker/"]
+
+RUN dotnet restore "src/NexusPM.Worker/NexusPM.Worker.csproj" \
+    --runtime linux-x64
+
+# ── Stage 2: Build & Publish ──────────────────────────────────────────────────
+FROM restore AS publish
+WORKDIR /src
+
+COPY . .
+
+RUN dotnet publish "src/NexusPM.Worker/NexusPM.Worker.csproj" \
+    --configuration Release \
+    --no-restore \
+    --runtime linux-x64 \
+    --self-contained false \
+    -p:UseAppHost=false \
+    -o /app/publish
+
+# ── Stage 3: Final ────────────────────────────────────────────────────────────
+FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS final
+
+RUN groupadd --system appgroup \
+ && useradd  --system --gid appgroup --no-create-home appuser
+
+WORKDIR /app
+COPY --from=publish /app/publish .
+RUN chown -R appuser:appgroup /app
+
+USER appuser
+
+ENTRYPOINT ["dotnet", "NexusPM.Worker.dll"]

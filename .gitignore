@@ -1,0 +1,57 @@
+## ── Build artifacts ──────────────────────────────────────────────────────────
+bin/
+obj/
+out/
+publish/
+
+## ── Visual Studio / JetBrains ─────────────────────────────────────────────────
+.vs/
+.idea/
+*.suo
+*.user
+*.userosscache
+*.userprefs
+*.sln.docstates
+.vscode/settings.json
+
+## ── .NET ─────────────────────────────────────────────────────────────────────
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+## ── ASP.NET Core ─────────────────────────────────────────────────────────────
+/src/NexusPM.API/appsettings.Development.json
+/src/NexusPM.API/appsettings.Local.json
+
+## ── User Secrets ─────────────────────────────────────────────────────────────
+.secrets/
+*.pfx
+
+## ── Test results ─────────────────────────────────────────────────────────────
+coverage/
+TestResults/
+*.trx
+*.coverage
+*.coveragexml
+
+## ── Docker ───────────────────────────────────────────────────────────────────
+docker-compose.override.yml
+
+## ── Environment files (NEVER commit secrets) ─────────────────────────────────
+.env
+.env.local
+.env.staging
+.env.production
+
+## ── OS ───────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+## ── Logs ─────────────────────────────────────────────────────────────────────
+logs/
+*.log
+
+## ── NuGet ────────────────────────────────────────────────────────────────────
+*.nupkg
+*.snupkg

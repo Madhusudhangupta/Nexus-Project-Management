@@ -1,0 +1,155 @@
+version: '3.9'
+
+services:
+  # ── API ───────────────────────────────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: final
+    container_name: nexuspm_api
+    ports:
+      - "5000:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:8080
+      - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=nexuspm;Username=nexuspm;Password=dev_password
+      - ConnectionStrings__Redis=redis:6379,password=dev_redis_password,abortConnect=false
+      - Jwt__SigningKey=dev_signing_key_32_chars_minimum_here
+      - Jwt__Issuer=nexuspm-api
+      - Jwt__Audience=nexuspm-client
+      - RabbitMQ__Host=rabbitmq
+      - RabbitMQ__Username=nexuspm
+      - RabbitMQ__Password=dev_password
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health/live || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+    networks:
+      - nexuspm
+
+  # ── Worker ────────────────────────────────────────────────────────────────────
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: nexuspm_worker
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=nexuspm;Username=nexuspm;Password=dev_password
+      - ConnectionStrings__Redis=redis:6379,password=dev_redis_password
+      - RabbitMQ__Host=rabbitmq
+      - RabbitMQ__Username=nexuspm
+      - RabbitMQ__Password=dev_password
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - nexuspm
+
+  # ── PostgreSQL ────────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: nexuspm_postgres
+    environment:
+      POSTGRES_DB:       nexuspm
+      POSTGRES_USER:     nexuspm
+      POSTGRES_PASSWORD: dev_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nexuspm -d nexuspm"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+    networks:
+      - nexuspm
+
+  # ── Redis ─────────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7.2-alpine
+    container_name: nexuspm_redis
+    command: >
+      redis-server
+      --requirepass dev_redis_password
+      --appendonly yes
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "dev_redis_password", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - nexuspm
+
+  # ── RabbitMQ ──────────────────────────────────────────────────────────────────
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: nexuspm_rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: nexuspm
+      RABBITMQ_DEFAULT_PASS: dev_password
+      RABBITMQ_DEFAULT_VHOST: /
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"  # Management UI: http://localhost:15672
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    networks:
+      - nexuspm
+
+  # ── Seq (structured log viewer, dev only) ────────────────────────────────────
+  seq:
+    image: datalust/seq:2024.3
+    container_name: nexuspm_seq
+    environment:
+      ACCEPT_EULA: Y
+    ports:
+      - "5341:5341"   # Serilog ingestion
+      - "8081:80"     # UI: http://localhost:8081
+    volumes:
+      - seq_data:/data
+    restart: unless-stopped
+    networks:
+      - nexuspm
+
+volumes:
+  postgres_data:
+  redis_data:
+  rabbitmq_data:
+  seq_data:
+
+networks:
+  nexuspm:
+    driver: bridge

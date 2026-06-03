@@ -1,0 +1,279 @@
+name: CI / CD
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+env:
+  REGISTRY:    nexuspm.azurecr.io
+  API_IMAGE:   nexuspm.azurecr.io/nexuspm-api
+  WORKER_IMAGE: nexuspm.azurecr.io/nexuspm-worker
+  DOTNET_VERSION: '9.0.x'
+
+# ── Jobs ──────────────────────────────────────────────────────────────────────
+jobs:
+
+  # ── 1. Build & Test ──────────────────────────────────────────────────────────
+  test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB:       nexuspm_test
+          POSTGRES_USER:     nexuspm
+          POSTGRES_PASSWORD: test_password
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U nexuspm"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7.2-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-retries 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history for SonarCloud
+
+      - name: Setup .NET ${{ env.DOTNET_VERSION }}
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+          restore-keys: ${{ runner.os }}-nuget-
+
+      - name: Restore dependencies
+        run: dotnet restore NexusPM.sln
+
+      - name: Build (Release)
+        run: dotnet build NexusPM.sln --configuration Release --no-restore
+
+      - name: Run unit & integration tests
+        run: |
+          dotnet test NexusPM.sln \
+            --configuration Release \
+            --no-build \
+            --verbosity normal \
+            --collect:"XPlat Code Coverage" \
+            --results-directory ./coverage \
+            --logger "trx;LogFileName=test-results.trx"
+        env:
+          ConnectionStrings__DefaultConnection: >-
+            Host=localhost;Port=5432;Database=nexuspm_test;
+            Username=nexuspm;Password=test_password
+          ConnectionStrings__Redis: localhost:6379,abortConnect=false
+          Jwt__SigningKey: test_signing_key_32_characters_min
+          Jwt__Issuer: nexuspm-api-test
+          Jwt__Audience: nexuspm-client-test
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: ./coverage/*.trx
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage/**/coverage.cobertura.xml
+          flags: unittests
+          fail_ci_if_error: false
+
+  # ── 2. Security Scan ─────────────────────────────────────────────────────────
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run Trivy vulnerability scan (filesystem)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+          format: sarif
+          output: trivy-results.sarif
+
+      - name: Upload Trivy SARIF to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-results.sarif
+
+      - name: Check for NuGet vulnerabilities
+        run: dotnet list package --vulnerable --include-transitive
+
+  # ── 3. Docker Build & Push ───────────────────────────────────────────────────
+  build-push:
+    name: Build & Push Docker Images
+    runs-on: ubuntu-latest
+    needs: [test, security]
+    if: github.event_name == 'push'   # only on push, not PRs
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Azure Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+
+      - name: Extract metadata (API)
+        id: meta-api
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.API_IMAGE }}
+          tags: |
+            type=sha,prefix=sha-
+            type=ref,event=branch
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+
+      - name: Build & push API image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          tags: ${{ steps.meta-api.outputs.tags }}
+          labels: ${{ steps.meta-api.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build & push Worker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.worker
+          push: true
+          tags: ${{ env.WORKER_IMAGE }}:${{ github.sha }},${{ env.WORKER_IMAGE }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Scan pushed API image with Trivy
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ env.API_IMAGE }}:sha-${{ github.sha }}
+          severity: CRITICAL
+          exit-code: '1'
+
+  # ── 4. Deploy to Staging ─────────────────────────────────────────────────────
+  deploy-staging:
+    name: Deploy → Staging
+    runs-on: ubuntu-latest
+    needs: build-push
+    if: github.ref == 'refs/heads/develop'
+    environment:
+      name: staging
+      url: https://staging-api.nexuspm.io
+
+    steps:
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS_STAGING }}
+
+      - name: Deploy API to staging App Service
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: nexuspm-api-staging
+          images: ${{ env.API_IMAGE }}:sha-${{ github.sha }}
+
+      - name: Deploy Worker to staging App Service
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: nexuspm-worker-staging
+          images: ${{ env.WORKER_IMAGE }}:${{ github.sha }}
+
+      - name: Wait for staging health check
+        run: |
+          for i in {1..12}; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+              https://staging-api.nexuspm.io/health/ready)
+            echo "Attempt $i: HTTP $STATUS"
+            if [ "$STATUS" = "200" ]; then
+              echo "Staging is healthy!"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "Staging health check failed after 2 minutes"
+          exit 1
+
+  # ── 5. Deploy to Production ──────────────────────────────────────────────────
+  deploy-production:
+    name: Deploy → Production
+    runs-on: ubuntu-latest
+    needs: build-push
+    if: github.ref == 'refs/heads/main'
+    environment:
+      name: production
+      url: https://api.nexuspm.io
+
+    steps:
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS_PROD }}
+
+      - name: Deploy API to production (blue/green slot swap)
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name:    nexuspm-api-prod
+          slot-name:   staging          # deploy to staging slot first
+          images: ${{ env.API_IMAGE }}:sha-${{ github.sha }}
+
+      - name: Warm up staging slot
+        run: |
+          curl -s https://nexuspm-api-prod-staging.azurewebsites.net/health/ready
+          sleep 30
+
+      - name: Swap slots (zero-downtime)
+        uses: azure/CLI@v2
+        with:
+          inlineScript: |
+            az webapp deployment slot swap \
+              --resource-group nexuspm-prod-rg \
+              --name nexuspm-api-prod \
+              --slot staging \
+              --target-slot production
+
+      - name: Verify production health
+        run: |
+          sleep 15
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            https://api.nexuspm.io/health/ready)
+          if [ "$STATUS" != "200" ]; then
+            echo "Production health check failed: HTTP $STATUS"
+            exit 1
+          fi
+          echo "Production is healthy!"
