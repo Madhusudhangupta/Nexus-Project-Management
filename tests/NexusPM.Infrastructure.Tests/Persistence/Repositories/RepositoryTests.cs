@@ -19,23 +19,32 @@ namespace NexusPM.Infrastructure.Tests.Persistence.Repositories;
 
 public sealed class DatabaseFixture : IAsyncLifetime
 {
-    private readonly PostgreSqlContainer _container = new PostgreSqlBuilder()
-        .WithImage("postgres:16-alpine")
-        .WithDatabase("nexuspm_test")
-        .WithUsername("nexuspm")
-        .WithPassword("test_password")
-        .Build();
-
+    private PostgreSqlContainer? _container;
     private Respawner? _respawner;
+
+    private readonly bool _isCi = Environment.GetEnvironmentVariable("CI") == "true";
 
     public AppDbContext DbContext { get; private set; } = null!;
     public string ConnectionString { get; private set; } = null!;
 
     public async Task InitializeAsync()
     {
-        await _container.StartAsync();
-
-        ConnectionString = _container.GetConnectionString();
+        if (!_isCi)
+        {
+            _container = new PostgreSqlBuilder()
+                .WithImage("postgres:16-alpine")
+                .WithDatabase("nexuspm_test")
+                .WithUsername("nexuspm")
+                .WithPassword("test_password")
+                .Build();
+            await _container.StartAsync();
+            ConnectionString = _container.GetConnectionString();
+        }
+        else
+        {
+            ConnectionString = Environment.GetEnvironmentVariable("ConnectionStrings__DefaultConnection") 
+                ?? "Host=127.0.0.1;Port=5432;Database=nexuspm_test;Username=nexuspm;Password=test_password";
+        }
 
         var options = new DbContextOptionsBuilder<AppDbContext>()
             .UseNpgsql(ConnectionString)
@@ -46,7 +55,10 @@ public sealed class DatabaseFixture : IAsyncLifetime
         // Apply all migrations
         await DbContext.Database.MigrateAsync();
 
-        _respawner = await Respawner.CreateAsync(ConnectionString, new RespawnerOptions
+        var connection = DbContext.Database.GetDbConnection();
+        await connection.OpenAsync();
+
+        _respawner = await Respawner.CreateAsync(connection, new RespawnerOptions
         {
             DbAdapter = DbAdapter.Postgres,
             SchemasToInclude = ["public"],
@@ -54,13 +66,19 @@ public sealed class DatabaseFixture : IAsyncLifetime
     }
 
     /// <summary>Resets the database to a clean state between tests.</summary>
-    public async Task ResetAsync() =>
-        await _respawner!.ResetAsync(ConnectionString);
+    public async Task ResetAsync()
+    {
+        var connection = DbContext.Database.GetDbConnection();
+        if (connection.State != System.Data.ConnectionState.Open)
+            await connection.OpenAsync();
+            
+        await _respawner!.ResetAsync(connection);
+    }
 
     public async Task DisposeAsync()
     {
         await DbContext.DisposeAsync();
-        await _container.DisposeAsync();
+        if (_container != null) await _container.DisposeAsync();
     }
 
     // ── Seed helpers ──────────────────────────────────────────────────────────

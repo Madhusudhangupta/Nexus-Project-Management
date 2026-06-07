@@ -76,10 +76,8 @@ jobs:
             --results-directory ./coverage \
             --logger "trx;LogFileName=test-results.trx"
         env:
-          ConnectionStrings__DefaultConnection: >-
-            Host=localhost;Port=5432;Database=nexuspm_test;
-            Username=nexuspm;Password=test_password
-          ConnectionStrings__Redis: localhost:6379,abortConnect=false
+          ConnectionStrings__DefaultConnection: "Host=127.0.0.1;Port=5432;Database=nexuspm_test;Username=nexuspm;Password=test_password"
+          ConnectionStrings__Redis: "127.0.0.1:6379,abortConnect=false"
           Jwt__SigningKey: test_signing_key_32_characters_min
           Jwt__Issuer: nexuspm-api-test
           Jwt__Audience: nexuspm-client-test
