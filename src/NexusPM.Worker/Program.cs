@@ -14,7 +14,7 @@ Log.Logger = new LoggerConfiguration()
     .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
     .Enrich.FromLogContext()
     .WriteTo.Console(new Serilog.Formatting.Json.JsonFormatter())
-    .CreateBootstrapLogger();
+    .CreateLogger();
 
 try
 {

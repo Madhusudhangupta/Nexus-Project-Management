@@ -15,7 +15,7 @@ Log.Logger = new LoggerConfiguration()
     .Enrich.FromLogContext()
     .Enrich.WithMachineName()
     .WriteTo.Console(new Serilog.Formatting.Json.JsonFormatter())
-    .CreateBootstrapLogger();
+    .CreateLogger();
 
 try
 {
