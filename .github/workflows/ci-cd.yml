@@ -127,8 +127,15 @@ jobs:
         with:
           sarif_file: trivy-results.sarif
 
+      - name: Setup .NET ${{ env.DOTNET_VERSION }}
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
       - name: Check for NuGet vulnerabilities
-        run: dotnet list package --vulnerable --include-transitive
+        run: |
+          dotnet restore NexusPM.sln
+          dotnet list NexusPM.sln package --vulnerable --include-transitive
 
   # ── 3. Docker Build & Push ───────────────────────────────────────────────────
   build-push:
