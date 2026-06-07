@@ -155,7 +155,7 @@ public sealed class ProjectTests
         project.Archive(UserId);
 
         project.IsArchived.Should().BeTrue();
-        project.IsDeleted.Should().BeTrue();
+        project.DeletedAt.Should().NotBeNull();
         project.DeletedAt.Should().BeCloseTo(DateTimeOffset.UtcNow, TimeSpan.FromSeconds(2));
     }
 

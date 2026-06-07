@@ -30,7 +30,7 @@ public sealed class TaskItemTests
         task.Priority.Should().Be(Priority.Medium);
         task.LoggedHours.Should().Be(0);
         task.NestingLevel.Should().Be(0);
-        task.IsDeleted.Should().BeFalse();
+        task.DeletedAt.Should().BeNull();
     }
 
     [Fact]
@@ -257,7 +257,7 @@ public sealed class TaskItemTests
 
         task.SoftDelete(UserId);
 
-        task.IsDeleted.Should().BeTrue();
+        task.DeletedAt.Should().NotBeNull();
         task.DeletedAt.Should().BeCloseTo(DateTimeOffset.UtcNow, TimeSpan.FromSeconds(2));
         task.DomainEvents.Should().ContainSingle()
             .Which.Should().BeOfType<TaskDeletedEvent>();

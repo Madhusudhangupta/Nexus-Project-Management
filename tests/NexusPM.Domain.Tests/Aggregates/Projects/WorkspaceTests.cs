@@ -141,7 +141,7 @@ public sealed class WorkspaceTests
         var workspace = CreateWorkspace();
         workspace.SoftDelete(OwnerId);
 
-        workspace.IsDeleted.Should().BeTrue();
+        workspace.DeletedAt.Should().NotBeNull();
         workspace.DeletedAt.Should().BeCloseTo(DateTimeOffset.UtcNow, TimeSpan.FromSeconds(2));
     }
 }
