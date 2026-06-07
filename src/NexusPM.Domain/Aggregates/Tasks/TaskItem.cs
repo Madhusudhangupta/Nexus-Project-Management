@@ -262,7 +262,7 @@ public sealed class TaskItem : AggregateRoot, IAuditableEntity, ISoftDeletable, 
 
         // Circular dependency check: if this task already blocks the target,
         // the target cannot block this task.
-        if (existingBlockerIds.Contains(Id))
+        if (existingBlockerIds.Contains(targetTaskId))
             throw new BusinessRuleViolationException(
                 "CircularDependency",
                 $"Adding this dependency would create a circular dependency chain.");

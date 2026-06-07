@@ -23,16 +23,8 @@ namespace NexusPM.API.Tests.Integration;
 /// </summary>
 public sealed class NexusPMWebAppFactory : WebApplicationFactory<Program>, IAsyncLifetime
 {
-    private readonly PostgreSqlContainer _postgres = new PostgreSqlBuilder()
-        .WithImage("postgres:16-alpine")
-        .WithDatabase("nexuspm_api_test")
-        .WithUsername("nexuspm")
-        .WithPassword("test_pass")
-        .Build();
-
-    private readonly RedisContainer _redis = new RedisBuilder()
-        .WithImage("redis:7.2-alpine")
-        .Build();
+    private PostgreSqlContainer? _postgres;
+    private RedisContainer? _redis;
 
     private readonly bool _isCi = Environment.GetEnvironmentVariable("CI") == "true";
 
@@ -40,6 +32,17 @@ public sealed class NexusPMWebAppFactory : WebApplicationFactory<Program>, IAsyn
     {
         if (!_isCi)
         {
+            _postgres = new PostgreSqlBuilder()
+                .WithImage("postgres:16-alpine")
+                .WithDatabase("nexuspm_api_test")
+                .WithUsername("nexuspm")
+                .WithPassword("test_pass")
+                .Build();
+
+            _redis = new RedisBuilder()
+                .WithImage("redis:7.2-alpine")
+                .Build();
+
             await _postgres.StartAsync();
             await _redis.StartAsync();
         }
@@ -49,8 +52,8 @@ public sealed class NexusPMWebAppFactory : WebApplicationFactory<Program>, IAsyn
     {
         if (!_isCi)
         {
-            await _postgres.DisposeAsync();
-            await _redis.DisposeAsync();
+            if (_postgres != null) await _postgres.DisposeAsync();
+            if (_redis != null) await _redis.DisposeAsync();
         }
         await base.DisposeAsync();
     }
@@ -66,12 +69,12 @@ public sealed class NexusPMWebAppFactory : WebApplicationFactory<Program>, IAsyn
                 // Replace real PostgreSQL with TestContainer connection
                 services.RemoveAll<DbContextOptions<AppDbContext>>();
                 services.AddDbContext<AppDbContext>(opts =>
-                    opts.UseNpgsql(_postgres.GetConnectionString()));
+                    opts.UseNpgsql(_postgres!.GetConnectionString()));
 
                 // Replace Redis with TestContainer
                 services.RemoveAll<StackExchange.Redis.IConnectionMultiplexer>();
                 services.AddSingleton<StackExchange.Redis.IConnectionMultiplexer>(
-                    StackExchange.Redis.ConnectionMultiplexer.Connect(_redis.GetConnectionString()));
+                    StackExchange.Redis.ConnectionMultiplexer.Connect(_redis!.GetConnectionString()));
             }
 
             // Apply migrations
