@@ -24,7 +24,7 @@ public sealed class AuthController(IMediator mediator) : ControllerBase
         CancellationToken ct)
     {
         var result = await mediator.Send(command, ct);
-        return CreatedAtAction(nameof(Register), ApiResponse.Ok(result));
+        return Created(string.Empty, ApiResponse.Ok(result));
     }
 
     /// <summary>Authenticate and receive JWT access + refresh tokens.</summary>

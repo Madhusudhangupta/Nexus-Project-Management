@@ -34,16 +34,24 @@ public sealed class NexusPMWebAppFactory : WebApplicationFactory<Program>, IAsyn
         .WithImage("redis:7.2-alpine")
         .Build();
 
+    private readonly bool _isCi = Environment.GetEnvironmentVariable("CI") == "true";
+
     public async Task InitializeAsync()
     {
-        await _postgres.StartAsync();
-        await _redis.StartAsync();
+        if (!_isCi)
+        {
+            await _postgres.StartAsync();
+            await _redis.StartAsync();
+        }
     }
 
     public new async Task DisposeAsync()
     {
-        await _postgres.DisposeAsync();
-        await _redis.DisposeAsync();
+        if (!_isCi)
+        {
+            await _postgres.DisposeAsync();
+            await _redis.DisposeAsync();
+        }
         await base.DisposeAsync();
     }
 
@@ -53,21 +61,28 @@ public sealed class NexusPMWebAppFactory : WebApplicationFactory<Program>, IAsyn
 
         builder.ConfigureServices(services =>
         {
-            // Replace real PostgreSQL with TestContainer connection
-            services.RemoveAll<DbContextOptions<AppDbContext>>();
-            services.AddDbContext<AppDbContext>(opts =>
-                opts.UseNpgsql(_postgres.GetConnectionString()));
+            if (!_isCi)
+            {
+                // Replace real PostgreSQL with TestContainer connection
+                services.RemoveAll<DbContextOptions<AppDbContext>>();
+                services.AddDbContext<AppDbContext>(opts =>
+                    opts.UseNpgsql(_postgres.GetConnectionString()));
 
-            // Replace Redis with TestContainer
-            services.RemoveAll<StackExchange.Redis.IConnectionMultiplexer>();
-            services.AddSingleton<StackExchange.Redis.IConnectionMultiplexer>(
-                StackExchange.Redis.ConnectionMultiplexer.Connect(_redis.GetConnectionString()));
+                // Replace Redis with TestContainer
+                services.RemoveAll<StackExchange.Redis.IConnectionMultiplexer>();
+                services.AddSingleton<StackExchange.Redis.IConnectionMultiplexer>(
+                    StackExchange.Redis.ConnectionMultiplexer.Connect(_redis.GetConnectionString()));
+            }
 
             // Apply migrations
             var sp = services.BuildServiceProvider();
             using var scope = sp.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
             db.Database.Migrate();
+
+            // Mock RabbitMQ Message Bus to prevent connection attempts
+            services.RemoveAll<NexusPM.Application.Common.Interfaces.IMessageBus>();
+            services.AddSingleton<NexusPM.Application.Common.Interfaces.IMessageBus, DummyMessageBus>();
         });
     }
 
