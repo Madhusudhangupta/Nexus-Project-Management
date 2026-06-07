@@ -73,6 +73,7 @@ public sealed class DatabaseFixture : IAsyncLifetime
             await connection.OpenAsync();
             
         await _respawner!.ResetAsync(connection);
+        DbContext.ChangeTracker.Clear();
     }
 
     public async Task DisposeAsync()
@@ -275,7 +276,6 @@ public sealed class WorkspaceRepositoryTests(DatabaseFixture db) : IAsyncLifetim
 
         // Act: invite via domain method
         workspace.InviteMember(invitee.Id, WorkspaceRole.Member, owner.Id);
-        db.DbContext.Workspaces.Update(workspace);
         await db.DbContext.SaveChangesAsync();
 
         // Assert: membership persisted
