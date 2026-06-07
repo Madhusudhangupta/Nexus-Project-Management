@@ -66,15 +66,14 @@ public sealed class NexusPMWebAppFactory : WebApplicationFactory<Program>, IAsyn
         {
             if (!_isCi)
             {
-                // Replace real PostgreSQL with TestContainer connection
+                // Replace real PostgreSQL with SQLite connection
                 services.RemoveAll<DbContextOptions<AppDbContext>>();
                 services.AddDbContext<AppDbContext>(opts =>
-                    opts.UseNpgsql(_postgres!.GetConnectionString()));
+                    opts.UseSqlite("DataSource=:memory:"));
 
-                // Replace Redis with TestContainer
+                // Replace Redis with MemoryCache-based alternative or remove it
+                // Since this is just for testing API behavior locally without Docker
                 services.RemoveAll<StackExchange.Redis.IConnectionMultiplexer>();
-                services.AddSingleton<StackExchange.Redis.IConnectionMultiplexer>(
-                    StackExchange.Redis.ConnectionMultiplexer.Connect(_redis!.GetConnectionString()));
             }
 
             // Apply migrations

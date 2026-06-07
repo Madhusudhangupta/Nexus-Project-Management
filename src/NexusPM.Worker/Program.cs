@@ -32,7 +32,8 @@ try
         .ReadFrom.Configuration(builder.Configuration)
         .MinimumLevel.Information()
         .Enrich.FromLogContext()
-        .WriteTo.Console(new Serilog.Formatting.Json.JsonFormatter()));
+        .WriteTo.Console(new Serilog.Formatting.Json.JsonFormatter()),
+        preserveStaticLogger: true);
 
     var host = builder.Build();
     await host.RunAsync();

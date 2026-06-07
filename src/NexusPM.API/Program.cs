@@ -34,7 +34,8 @@ try
         .Enrich.WithCorrelationId()
         .Enrich.WithProperty("Application", "NexusPM.API")
         .Enrich.WithProperty("Environment", ctx.HostingEnvironment.EnvironmentName)
-        .WriteTo.Console(new Serilog.Formatting.Json.JsonFormatter()));
+        .WriteTo.Console(new Serilog.Formatting.Json.JsonFormatter()),
+        preserveStaticLogger: true);
 
     // ── Application + Infrastructure layers ──────────────────────────────────
     builder.Services.AddApplication();
