@@ -68,7 +68,7 @@ jobs:
 
       - name: Run unit & integration tests
         run: |
-          dotnet test NexusPM.sln \
+          dotnet test NexusPM.sln -m:1 \
             --configuration Release \
             --no-build \
             --verbosity normal \
